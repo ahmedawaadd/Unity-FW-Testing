@@ -3,12 +3,15 @@
 #include "unity.h"
 #include "receiver_tag.h"
 #include "hw_regs.h"
+#include "msp430_mock.h"
+#include "dco.h"
 
 void hw_regs_reset(void);
 
 void setUp(void)
 {
     hw_regs_reset();
+    msp430_mock_reset();
 }
 
 void tearDown(void) { }
@@ -334,6 +337,56 @@ static void test_poll_returns_none_when_fifo_empty(void)
     TEST_ASSERT_EQUAL(RT_EVT_NONE, rt_poll(&trk, &pkt, 1000u));
 }
 
+/* --- start_DCO --------------------------------------------------------- */
+
+static void test_start_DCO_writes_the_tick_values(void)
+{
+    start_DCO(1000u, 250u, 750u);
+
+    TEST_ASSERT_EQUAL_HEX16(1000u, TBCCR0);
+    TEST_ASSERT_EQUAL_HEX16(250u,  TBCCR1);
+    TEST_ASSERT_EQUAL_HEX16(750u,  TBCCR2);
+}
+
+static void test_start_DCO_selects_smclk_and_starts_timer(void)
+{
+    start_DCO(100u, 10u, 20u);
+
+    TEST_ASSERT_EQUAL_HEX16(TBSSEL_2 | MC0, TBCTL);
+}
+
+static void test_start_DCO_sets_pwm_output_modes(void)
+{
+    start_DCO(100u, 10u, 20u);
+
+    TEST_ASSERT_EQUAL_HEX16(OUTMOD_3, TBCCTL1);
+    TEST_ASSERT_EQUAL_HEX16(OUTMOD_7, TBCCTL2);
+}
+
+/* Start from all-ones so the clear-masks have something to clear, and any
+ * bit the function should NOT touch is visible if it goes missing. */
+static void test_start_DCO_clears_only_its_own_clock_bits(void)
+{
+    BCSCTL1 = 0xFFu;
+    BCSCTL3 = 0xFFu;
+
+    start_DCO(100u, 10u, 20u);
+
+    TEST_ASSERT_EQUAL_HEX8(0x00u, BCSCTL1 & (XTS | DIVA_3));
+    TEST_ASSERT_EQUAL_HEX8(0x8Fu, BCSCTL1);   /* the other bits survived */
+
+    TEST_ASSERT_EQUAL_HEX8(0x00u, BCSCTL3 & LFXT1S_3);
+    TEST_ASSERT_EQUAL_HEX8(0xCFu, BCSCTL3);
+}
+
+static void test_start_DCO_leaves_interrupts_enabled(void)
+{
+    start_DCO(100u, 10u, 20u);
+
+    TEST_ASSERT_EQUAL_INT(1, dint_calls);
+    TEST_ASSERT_EQUAL_INT(1, eint_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -367,6 +420,12 @@ int main(void)
 
     RUN_TEST(test_poll_reports_fault_from_status_register);
     RUN_TEST(test_poll_returns_none_when_fifo_empty);
+
+    RUN_TEST(test_start_DCO_writes_the_tick_values);
+    RUN_TEST(test_start_DCO_selects_smclk_and_starts_timer);
+    RUN_TEST(test_start_DCO_sets_pwm_output_modes);
+    RUN_TEST(test_start_DCO_clears_only_its_own_clock_bits);
+    RUN_TEST(test_start_DCO_leaves_interrupts_enabled);
 
     return UNITY_END();
 }
