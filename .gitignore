@@ -1,3 +1,7 @@
 test_runner
 test_runner.exe
 *.o
+*.gcno
+*.gcda
+*.gcov
+cov/
